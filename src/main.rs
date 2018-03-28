@@ -10,14 +10,6 @@ mod error;
 use error::*;
 use itertools::Itertools;
 
-#[derive(Debug)]
-enum Edge {
-    Left(u16),
-    Right(u16),
-    Top(u16),
-    Bottom(u16),
-}
-
 fn screen(conn: &xcb::Connection) -> Result<xcb::Screen> {
     conn.get_setup().roots().next().ok_or_else(|| {
         ErrorKind::XcbNoScreenError(()).into()
@@ -105,62 +97,24 @@ fn primary_screen_info(
     ))
 }
 
-fn create_window(
-    conn: &xcb::Connection,
-    screen: &xcb::Screen,
-    info: &xcb::Reply<xcb::ffi::randr::xcb_randr_get_crtc_info_reply_t>,
-    edge: Edge,
-) {
-    struct Rect {
-        x: i16,
-        y: i16,
-        w: u16,
-        h: u16,
-    }
+fn main() {
+    let insets: Vec<u16> = std::env::args()
+        .skip(1)
+        .map(|a| match a.parse::<u16>() {
+            Ok(n) => n,
+            Err(_) => {
+                eprintln!("Invalid inset value '{}'", a);
+                std::process::exit(1);
+            }
+        })
+        .pad_using(4, |_| 0)
+        .collect();
 
-    use std::fmt;
+    let (conn, _) = xcb::Connection::connect(None).unwrap();
 
-    impl fmt::Display for Rect {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(
-                f,
-                "(x={}, y={}, w={}, h={})",
-                self.x,
-                self.y,
-                self.w,
-                self.h
-            )
-        }
-    }
+    let info = screen_info(&conn, None).unwrap();
 
-    let rect = match edge {
-        Edge::Left(width) => Rect {
-            x: 0,
-            y: 0,
-            w: width,
-            h: info.height(),
-        },
-        Edge::Right(width) => Rect {
-            x: (info.width() - width) as i16,
-            y: 0,
-            w: width,
-            h: info.height(),
-        },
-        Edge::Top(height) => Rect {
-            x: 0,
-            y: 0,
-            w: info.width(),
-            h: height,
-        },
-        Edge::Bottom(height) => Rect {
-            x: 0,
-            y: (info.height() - height) as i16,
-            w: info.width(),
-            h: height,
-        },
-    };
-
-    println!("{:?} rect{}", edge, rect);
+    let screen = screen(&conn).expect("Root screen not found");
 
     let window = conn.generate_id();
 
@@ -169,31 +123,37 @@ fn create_window(
         xcb::WINDOW_CLASS_COPY_FROM_PARENT as u8,
         window,
         screen.root(),
-        rect.x,
-        rect.y,
-        rect.w,
-        rect.h,
+        0,
+        0,
+        1,
+        1,
         0,
         xcb::WINDOW_CLASS_INPUT_OUTPUT as u16,
         screen.root_visual(),
-        &[
-            (xcb::CW_BACK_PIXEL, 0xffff00ff),
-            (xcb::CW_EVENT_MASK, xcb::EVENT_MASK_EXPOSURE),
-            (xcb::CW_OVERRIDE_REDIRECT, 0),
-        ],
+        &[],
     );
 
+    let left = u32::from(insets[0]);
+    let right = u32::from(insets[1]);
+    let top = u32::from(insets[2]);
+    let bottom = u32::from(insets[3]);
     let end_x = u32::from(info.width()) - 1;
     let end_y = u32::from(info.height()) - 1;
 
-    let strut = match edge {
-        Edge::Left(width) => [u32::from(width), 0, 0, 0, 0, end_y, 0, 0, 0, 0, 0, 0],
-        Edge::Right(width) => [0, u32::from(width), 0, 0, 0, 0, 0, end_y, 0, 0, 0, 0],
-        Edge::Top(height) => [0, 0, u32::from(height), 0, 0, 0, 0, 0, 0, end_x, 0, 0],
-        Edge::Bottom(height) => [0, 0, 0, u32::from(height), 0, 0, 0, 0, 0, 0, 0, end_x],
-    };
-
-    println!("{:?} strut{:?}", edge, strut);
+    let strut = [
+        left,
+        right,
+        top,
+        bottom,
+        0,
+        end_y,
+        0,
+        end_y,
+        0,
+        end_x,
+        0,
+        end_x,
+    ];
 
     let wm_name = "inset".as_bytes();
 
@@ -207,35 +167,6 @@ fn create_window(
     set_prop!(&conn, window, "WM_NAME", wm_name, "STRING", 8);
 
     xcb::map_window(&conn, window);
-}
-
-fn main() {
-    let insets = std::env::args()
-        .skip(1)
-        .map(|a| match a.parse::<u16>() {
-            Ok(n) => n,
-            Err(_) => panic!("Invalid inset value '{}'", a),
-        })
-        .pad_using(4, |_| 0);
-
-    let (conn, _) = xcb::Connection::connect(None).unwrap();
-
-    let info = screen_info(&conn, None).unwrap();
-
-    let screen = screen(&conn).expect("Root screen not found");
-
-    for (i, inset) in insets.enumerate() {
-        if (inset > 0) {
-            let edge = match i {
-                0 => Edge::Left(inset),
-                1 => Edge::Right(inset),
-                2 => Edge::Top(inset),
-                3 => Edge::Bottom(inset),
-                _ => panic!("Unhandled edge index '{}'", i),
-            };
-            create_window(&conn, &screen, &info, edge);
-        }
-    }
 
     conn.flush();
 
@@ -243,7 +174,8 @@ fn main() {
         let event = conn.wait_for_event();
         match event {
             None => break,
-            Some(event) => {}
+            Some(_) => {}
         }
     }
+
 }

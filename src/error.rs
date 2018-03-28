@@ -10,32 +10,11 @@ error_chain! {
             description("No screen found"),
             display("No screen found"),
         }
-
-        XcbPropertyError(code: u8) {
-            description("Unable to set window property"),
-            display("Unable to set window property: '{}'", code),
-        }
-
-        XcbScreenResourcesError(code: u8) {
-            description("Unable to get screen resources"),
-            display("Unable to get screen resources: '{}'", code),
-        }
-
-        PrimaryScreenInfoError(code: u8) {
-            description("Unable to get primary screen information"),
-            display("Unable to get primary screen information: '{}'", code),
-        }
-
-        XcbError(description: String) {
-            description("Unable to send XCB request"),
-            display("Unable to send XCB request: '{}'", description),
-        }
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum XErrorKind {
-    ConnectionRefused,
     NoPrimaryOutput,
     OutputNotFound,
 }
@@ -43,7 +22,6 @@ pub enum XErrorKind {
 impl XErrorKind {
     fn as_str(&self) -> &'static str {
         match *self {
-            XErrorKind::ConnectionRefused => "Unable to connect to X server",
             XErrorKind::NoPrimaryOutput => "Unable to find primary output",
             XErrorKind::OutputNotFound => "Unable to find specified output",
         }
